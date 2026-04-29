@@ -1,0 +1,44 @@
+# Dataset (never commit patient data)
+DATASET/
+uploads/
+pdfs/
+chroma_db/
+
+# Model weights
+models/*.pth
+models/*.pt
+models/*.bin
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+.pytest_cache/
+
+# Database
+*.db
+*.sqlite
+
+# Environment
+.env
+backend/.env
+
+# Node
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.pdf
