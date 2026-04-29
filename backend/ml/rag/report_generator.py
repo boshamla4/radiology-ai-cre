@@ -13,18 +13,18 @@ from app.models.schemas import FindingItem, DicomMetadata
 from ml.rag.indexer import get_indexer
 
 
-SYSTEM_PROMPT = """Tu es un radiologue expert assistant travaillant au Centre de Radiologie Emilie, Libreville, Gabon.
-Tu génères des comptes rendus radiologiques en français, dans un style médical professionnel et précis.
-Ton rôle est d'ASSISTER le radiologue, pas de remplacer son jugement clinique.
-Le compte rendu que tu génères est un BROUILLON IA qui doit être vérifié et validé par un radiologue.
+SYSTEM_PROMPT = """You are an expert radiology assistant at Centre Radiologie Emilie, Libreville, Gabon.
+Write radiology reports in French using professional medical style.
+Your role is to ASSIST the radiologist, not replace clinical judgment.
+The report you generate is an AI DRAFT to be verified by a radiologist.
 
-Règles de rédaction :
-- Utilise le français médical précis et professionnel
-- Structure : Résultats (observations détaillées) puis Conclusion (synthèse courte)
-- Pour les examens normaux : liste tous les éléments évalués comme normaux
-- Pour les anomalies : précise localisation, taille si disponible, caractéristiques
-- Ne pose jamais de diagnostic définitif, utilise des formulations comme "compatible avec", "évocateur de", "à confirmer"
-- Garde le style de la radiologie francophone africaine"""
+Rules:
+- Use precise professional French medical terminology
+- Structure: RESULTAT (detailed findings) then CONCLUSION (short summary)
+- For normal exams: list all evaluated elements as normal
+- For anomalies: specify location, size if available, characteristics
+- Never state a definitive diagnosis; use phrases like "compatible avec", "evocateur de", "a confirmer"
+"""
 
 
 def _build_prompt(
@@ -34,47 +34,38 @@ def _build_prompt(
     similar_cases: list[dict],
     exam_type: str,
 ) -> str:
-    # Format segmentation findings
-    findings_text = ""
+    # Format segmentation findings (ASCII-safe labels)
+    findings_lines = ""
     if findings:
         for f in findings:
             flag = " [PATHOLOGIQUE]" if f.is_pathological else ""
             size = f" ({f.size_mm}mm)" if f.size_mm else ""
-            findings_text += f"- {f.structure}{size} en {f.location}: {f.description}{flag}\n"
+            findings_lines += f"- {f.structure}{size} region {f.location}: {f.description}{flag}\n"
     else:
-        findings_text = "- Analyse de segmentation en cours (modèle en phase d'initialisation)\n"
+        findings_lines = "- Examen en cours d'analyse par le systeme IA.\n"
 
-    # Format similar cases as few-shot examples
-    examples_text = ""
+    # One short RAG example for style guidance (keep prompt short)
+    example_text = ""
     if similar_cases:
-        examples_text = "\n\n=== EXEMPLES DE COMPTES RENDUS SIMILAIRES (pour le style et la terminologie) ===\n"
-        for i, case in enumerate(similar_cases[:3], 1):
-            examples_text += f"\n--- Exemple {i} ---\n{case['text'][:600]}\n"
+        example_text = f"\nExample compte rendu (style reference):\n{similar_cases[0]['text'][:400]}\n"
 
-    return f"""Génère un compte rendu radiologique pour l'examen suivant.
+    modality = metadata.modality.value if hasattr(metadata.modality, 'value') else str(metadata.modality)
 
-=== INFORMATIONS PATIENT ===
-Patient : {metadata.patient_name}, {metadata.age}, {metadata.sex}
-Examen : {exam_type}
-Modalité : {metadata.modality}
-Région : {metadata.body_part or 'Non spécifiée'}
-Indication clinique : {indication}
-Protocole : {metadata.protocol_name}
-
-=== RÉSULTATS DE SEGMENTATION IA ===
-{findings_text}
-{examples_text}
-
-=== INSTRUCTIONS ===
-Génère UNIQUEMENT les deux sections suivantes (sans répéter les informations patient) :
-
-RÉSULTAT :
-[Rédige les observations détaillées en français médical professionnel,
- basé sur les résultats de segmentation et les exemples similaires.
- Utilise des tirets pour chaque observation.]
-
-CONCLUSION :
-[Rédige une conclusion courte en une ou deux phrases.]"""
+    return (
+        f"{SYSTEM_PROMPT}\n\n"
+        f"Generate a radiology report in French for this exam.\n\n"
+        f"Patient: {metadata.patient_name}, age {metadata.age}, sex {metadata.sex}\n"
+        f"Exam: {exam_type} | Modality: {modality} | Region: {metadata.body_part or 'unknown'}\n"
+        f"Clinical indication: {indication}\n"
+        f"Protocol: {metadata.protocol_name}\n\n"
+        f"AI segmentation findings:\n{findings_lines}"
+        f"{example_text}\n"
+        f"Write ONLY the two sections below in French:\n\n"
+        f"RESULTAT :\n"
+        f"[Write detailed observations using medical French, one dash per finding]\n\n"
+        f"CONCLUSION :\n"
+        f"[Write a short 1-2 sentence summary]\n"
+    )
 
 
 def _infer_exam_type(metadata: DicomMetadata) -> str:
@@ -124,9 +115,9 @@ def _parse_generated_text(text: str) -> tuple[str, str]:
     conclusion = ""
 
     import re
-    # Try to find RÉSULTAT section
+    # Match RESULTAT or RÉSULTAT (LLaVA may or may not add accent)
     m_findings = re.search(
-        r"RÉSULTAT\s*:?\s*\n?(.*?)(?=CONCLUSION|$)", text,
+        r"R[EÉ]SULTAT\s*:?\s*\n?(.*?)(?=CONCLUSION|$)", text,
         re.DOTALL | re.IGNORECASE
     )
     m_conclusion = re.search(
@@ -191,20 +182,21 @@ class ReportGenerator:
             return exam_type, technique, findings_text, conclusion_text, len(similar), 0.45
 
         try:
-            messages = [{"role": "system", "content": SYSTEM_PROMPT},
-                        {"role": "user", "content": prompt}]
-
-            # Add image if available and model supports vision
-            if overlay_base64 and settings.OLLAMA_MODEL in ("llava", "llava:13b", "llava:7b"):
-                messages[-1]["images"] = [overlay_base64]
-
-            response = self.client.chat(
+            response = self.client.generate(
                 model=settings.OLLAMA_MODEL,
-                messages=messages,
-                options={"temperature": 0.3, "num_predict": 800},
+                prompt=prompt,
+                options={"temperature": 0.3, "num_predict": 1200, "num_ctx": 4096},
             )
-            generated = response.message.content
+            generated = response.response
+            print(f"[LLaVA raw output ({len(generated)} chars)]: {generated[:300]!r}")
+
             findings_text, conclusion_text = _parse_generated_text(generated)
+
+            # If LLaVA returned empty content, use template fallback
+            if not findings_text.strip():
+                print("[LLaVA] Empty response — using template fallback")
+                findings_text, conclusion_text = self._template_fallback(findings, metadata)
+                return exam_type, technique, findings_text, conclusion_text, len(similar), 0.50
 
             confidence = min(0.90, 0.55 + len(similar) * 0.07)
             return exam_type, technique, findings_text, conclusion_text, len(similar), confidence
