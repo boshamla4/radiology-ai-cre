@@ -29,14 +29,15 @@ class SegmentationModel:
         self.loaded = False
 
         if weights_path and Path(weights_path).exists():
-            state = torch.load(weights_path, map_location=DEVICE)
+            state = torch.load(weights_path, map_location=DEVICE, weights_only=False)
             self.model.load_state_dict(state)
             self.model.eval()
             self.loaded = True
+            print(f"[SegmentationModel] Loaded weights from {weights_path}")
         else:
-            # No weights yet — use random init as placeholder
-            # Will be replaced once training on BraTS/CHAOS is done
             self.model.eval()
+            print(f"[SegmentationModel] No weights at {weights_path} — running uninitialized. "
+                  "Place unet_cre_finetuned.pth in models/ after Kaggle training.")
 
     def preprocess(self, img_array: np.ndarray) -> torch.Tensor:
         """Normalise and resize a uint8 2D array → (1,1,H,W) tensor."""

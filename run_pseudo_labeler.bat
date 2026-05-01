@@ -1,9 +1,10 @@
 @echo off
 REM ─────────────────────────────────────────────────────────────
-REM  MedSAM Pseudo-Labeling — One-command annotation of DATASET/
+REM  MedSAM Pseudo-Labeling — Annotates all patients in DATASET/
 REM  Output: DATASET/pseudo_labels/ + manifest.json per patient
 REM
-REM  First run: pip install transformers accelerate
+REM  Safe to re-run: already-labeled patients are skipped.
+REM  First run: pip install transformers accelerate opencv-python
 REM  Then:      double-click this .bat or run from terminal
 REM ─────────────────────────────────────────────────────────────
 
@@ -12,9 +13,10 @@ cd /d "%~dp0"
 echo.
 echo  MedSAM Pseudo-Labeler — Centre Radiologie Emilie
 echo  ──────────────────────────────────────────────────
-echo  Dataset root : %~dp0DATASET
-echo  Output dir   : %~dp0DATASET\pseudo_labels
+echo  Dataset root  : %~dp0DATASET
+echo  Output dir    : %~dp0DATASET\pseudo_labels
 echo  Slices/patient: 10
+echo  Skip existing : YES (re-run safe)
 echo.
 
 python -m backend.ml.medsam.pseudo_labeler ^
@@ -26,6 +28,6 @@ python -m backend.ml.medsam.pseudo_labeler ^
 
 echo.
 echo  Done. Check DATASET\pseudo_labels\manifest.json
-echo  Upload the pseudo_labels\ folder to Google Colab for fine-tuning.
+echo  Next: run zip_pseudo_labels.bat then upload to Kaggle.
 echo.
 pause

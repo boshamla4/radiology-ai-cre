@@ -322,6 +322,9 @@ def save_pseudo_labels(
     Files:
         <output_dir>/slices/patient_id_NNNN.npy   — normalised [0,1] float32
         <output_dir>/masks/patient_id_NNNN.npy    — binary uint8 {0,1}
+
+    Paths in the manifest are relative to output_dir so the dataset
+    can be zipped and uploaded to Kaggle without breaking paths.
     """
     output_dir.mkdir(parents=True, exist_ok=True)
     slices_dir = output_dir / "slices"
@@ -338,9 +341,10 @@ def save_pseudo_labels(
         np.save(slice_path, (sl.astype(np.float32) / 255.0))
         np.save(mask_path, mk.astype(np.uint8))
 
+        # Store relative paths — works after zip/unzip to any location
         entries.append({
-            "slice": str(slice_path),
-            "mask": str(mask_path),
+            "slice": str(slice_path.relative_to(output_dir.parent)),
+            "mask": str(mask_path.relative_to(output_dir.parent)),
             "patient_id": patient_id,
             "slice_idx": i,
         })
@@ -379,32 +383,44 @@ def label_dataset(
     processor,
     backend: str,
     max_slices: int = 10,
+    skip_existing: bool = True,
 ) -> Path:
     """
     Label all patients in dataset_root.
-    Looks for:
-      - dataset_root/patientXXX/*.zip
-      - dataset_root/patientXXX/  (folder of .dcm files)
+    Looks for any subdirectory containing a .zip or .dcm files.
     Returns path to written manifest.json.
+
+    Args:
+        skip_existing: If True, skip patients whose manifest.json already exists
+                       in output_dir. Safe to re-run after adding new patients.
     """
     manifest = []
-    patient_dirs = sorted(
-        d for d in dataset_root.iterdir()
-        if d.is_dir() and d.name.lower().startswith("patient")
-    )
+    patient_dirs = sorted(d for d in dataset_root.iterdir() if d.is_dir())
 
     if not patient_dirs:
         raise ValueError(f"No patient folders found in {dataset_root}")
 
-    for patient_dir in patient_dirs:
+    total = len(patient_dirs)
+    for i, patient_dir in enumerate(patient_dirs, 1):
+        patient_id = patient_dir.name
+        patient_out = output_dir / patient_id
+
+        if skip_existing and (patient_out / "manifest.json").exists():
+            log.info("[%d/%d] Skipping %s (already labeled)", i, total, patient_id)
+            # Load existing entries to include in the full manifest
+            existing = json.loads((patient_out / "manifest.json").read_text())
+            manifest.extend(existing)
+            continue
+
         try:
+            log.info("[%d/%d] Labeling %s…", i, total, patient_id)
             entries = label_patient(
                 patient_dir, output_dir, model, processor, backend,
-                max_slices=max_slices, patient_id=patient_dir.name,
+                max_slices=max_slices, patient_id=patient_id,
             )
             manifest.extend(entries)
         except Exception as exc:
-            log.warning("Skipping %s: %s", patient_dir.name, exc)
+            log.warning("Skipping %s: %s", patient_id, exc)
 
     manifest_path = output_dir / "manifest.json"
     manifest_path.write_text(json.dumps(manifest, indent=2))
@@ -425,6 +441,8 @@ def _parse_args():
     p.add_argument("--device", default="cpu", choices=["cpu", "cuda"], help="Inference device")
     p.add_argument("--weights", type=Path, default=None,
                    help="Optional local SAM weights .pth (only for segment-anything backend)")
+    p.add_argument("--no-skip-existing", action="store_true",
+                   help="Re-label patients even if already processed (default: skip existing)")
     p.add_argument("--verbose", action="store_true")
     return p.parse_args()
 
@@ -462,6 +480,7 @@ def main():
         manifest_path = label_dataset(
             args.dataset_root, args.output_dir, model, processor, backend,
             max_slices=args.slices,
+            skip_existing=not args.no_skip_existing,
         )
         log.info("Full dataset manifest: %s", manifest_path)
 

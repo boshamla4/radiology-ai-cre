@@ -178,3 +178,25 @@ def get_indexer() -> CompteRenduIndexer:
     if _indexer is None:
         _indexer = CompteRenduIndexer()
     return _indexer
+
+
+if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser(description="Index CRE compte rendus into ChromaDB")
+    parser.add_argument("--dataset", type=str, default=None,
+                        help="Path to DATASET root (default: from config)")
+    parser.add_argument("--pdf", type=str, default=None,
+                        help="Index a single PDF instead of the whole dataset")
+    parser.add_argument("--patient-id", type=str, default=None,
+                        help="Patient ID for single PDF indexing")
+    args = parser.parse_args()
+
+    indexer = CompteRenduIndexer()
+    if args.pdf:
+        pid = args.patient_id or Path(args.pdf).parent.name
+        doc_id = indexer.index_pdf(args.pdf, pid)
+        print(f"Indexed: {doc_id}")
+    else:
+        count = indexer.index_dataset(args.dataset)
+        print(f"\nDone. {count} compte rendus indexed into ChromaDB.")
+        print(f"Total in collection: {indexer.collection.count()}")
