@@ -16,27 +16,28 @@
 % ── TikZ styles ──────────────────────────────────────────────────────────────
 \tikzset{
   block/.style={rectangle, rounded corners=3pt, draw=black!70, fill=blue!8,
-                text width=2.6cm, align=center, font=\footnotesize, minimum height=0.7cm,
-                inner sep=4pt},
+                text width=2.5cm, align=center, font=\footnotesize,
+                minimum height=0.72cm, inner sep=4pt},
   blockred/.style={block, fill=red!8},
-  blockgreen/.style={block, fill=green!8},
+  blockgreen/.style={block, fill=green!9},
   blockorange/.style={block, fill=orange!10},
   blockgray/.style={block, fill=gray!10},
-  decision/.style={diamond, draw=black!70, fill=yellow!15, aspect=2.2,
+  decision/.style={diamond, draw=black!70, fill=yellow!15, aspect=2.4,
                    font=\scriptsize, align=center, inner sep=2pt},
   arrow/.style={-{Stealth[length=5pt]}, thick, black!70},
-  groupbox/.style={draw=black!30, dashed, rounded corners=5pt, fill=black!3,
-                   inner sep=6pt},
+  groupbox/.style={draw=black!30, dashed, rounded corners=5pt,
+                   fill=black!3, inner sep=6pt},
 }
 
 \begin{document}
 
-\title{Syst\`{e}me d'Aide au Diagnostic Radiologique par Segmentation S\'{e}mantique Multi-Organe et G\'{e}n\'{e}ration Automatique de Comptes Rendus en Fran\c{c}ais~: Application aux Donn\'{e}es Cliniques du Centre de Radiologie \'{E}milie, Gabon}
+\title{AI-Assisted Radiology Reporting Through Multi-Organ Semantic Segmentation
+and Automated French Report Generation: A Clinical System Deployed on Real Data
+from Sub-Saharan Africa}
 
 \author{
   \IEEEauthorblockN{Alaaeddine Bouchamla}
-  \IEEEauthorblockA{ENISO, Universit\'{e} de Sousse\\Sousse, Tunisie\\
-  alaaeddine.bouchamla@eniso.u-sousse.tn}
+  \IEEEauthorblockA{ENISO, Universit\'{e} de Sousse\\Sousse, Tunisie}
   \and
   \IEEEauthorblockN{Mehrez Abdellaoui}
   \IEEEauthorblockA{ENISO, Universit\'{e} de Sousse\\Sousse, Tunisie}
@@ -54,400 +55,560 @@ multi-organ semantic segmentation with automated French-language report
 generation, deployed as a clinical web application for the Centre de Radiologie
 \'{E}milie (CRE) in Libreville, Gabon. The system ingests DICOM CT and MRI
 volumes, performs modality-aware segmentation using pretrained MONAI bundles
-(104-organ CT segmentation via TotalSegmentator \cite{wasserthal2023}; 133-structure
-brain MRI segmentation via UNesT \cite{yu2023}), applies a CRE-specific fine-tuning
-layer trained on MedSAM \cite{ma2024} pseudo-labels from real patient data, and
-generates draft \textit{comptes rendus} in French using a retrieval-augmented
-generation (RAG) pipeline grounded in real institutional reports. A radiologist
-reviews, edits, and validates each AI draft before PDF generation, ensuring
-clinical safety. Validated reports are indexed back into the knowledge base,
-implementing continual learning. To our knowledge, this is the first French-language
-AI radiology reporting system built on real clinical data from sub-Saharan Africa.
+--- 104-organ CT segmentation via TotalSegmentator \cite{wasserthal2023} and
+133-structure brain MRI segmentation via UNesT \cite{yu2023} --- and applies a
+CRE-specific fine-tuning layer trained on pseudo-labels automatically generated
+by MedSAM \cite{ma2024} from real patient data, requiring no manual annotation.
+Segmentation outputs feed directly into per-organ volumetric metrics (volume in
+mL, mean Hounsfield density, anomaly flags against published normal ranges), which
+ground the generation of draft \textit{comptes rendus} in French via a
+retrieval-augmented generation (RAG) pipeline built from real institutional
+reports. A radiologist reviews, edits, and validates each AI draft before PDF
+generation, ensuring clinical safety. Validated reports are indexed back into the
+knowledge base, implementing continual learning. Evaluated on the CRE pseudo-label
+validation set, Stage~2 fine-tuning achieves IoU~=~[FILL], Dice~=~[FILL]. Report
+quality was assessed by the clinical partner on [FILL] cases. To our knowledge,
+this is the first French-language AI radiology reporting system built on real
+clinical data from sub-Saharan Africa.
 \end{abstract}
 
 \begin{IEEEkeywords}
-semantic segmentation, MONAI, transfer learning, radiology report generation,
-RAG, DICOM, French NLP, medical AI, sub-Saharan Africa
+semantic segmentation, MONAI, transfer learning, retrieval-augmented generation,
+DICOM, French NLP, medical AI, sub-Saharan Africa, radiology, compte rendu
 \end{IEEEkeywords}
 
 % ── I. Introduction ───────────────────────────────────────────────────────────
 \section{Introduction}
 
-Radiology departments in sub-Saharan African countries face a dual challenge:
-growing demand for imaging studies and a critical shortage of trained radiologists
-\cite{osei2019}. The Centre de Radiologie \'{E}milie (CRE) in Libreville, Gabon
-performs hundreds of CT and MRI examinations monthly, each requiring a structured
-written \textit{compte rendu} produced manually --- a process subject to
-inter-observer variability that creates reporting backlogs delaying patient care.
+Radiology departments in sub-Saharan African countries face a well-documented
+dual crisis: a rapidly growing demand for diagnostic imaging driven by
+demographic growth and urbanisation, alongside a critical shortage of trained
+radiologists \cite{osei2019}. The radiologist-to-population ratio across most
+of Central and West Africa is estimated at fewer than 1 per 500{,}000 inhabitants
+--- orders of magnitude below WHO recommendations. The Centre de Radiologie
+\'{E}milie (CRE) in Libreville, Gabon operates in precisely this environment,
+performing hundreds of CT and MRI examinations per month, each requiring a
+structured written report --- the \textit{compte rendu} --- produced manually
+by a radiologist. The drafting process alone requires 10--20 minutes per study,
+creating reporting backlogs that delay patient care and compound radiologist
+fatigue.
 
-Deep learning has achieved near-expert performance in medical image segmentation,
-with U-Net \cite{ronneberger2015} and its variants as the dominant paradigm.
-Simultaneously, large language models enable automated clinical text generation
-\cite{singhal2023}. Combining these into a single pipeline from raw DICOM input
-to a validated radiology report has received limited attention for French-language
-contexts and has not, to our knowledge, been applied to real African clinical data.
+Artificial intelligence, particularly deep learning-based semantic segmentation
+and large language models, has demonstrated the potential to substantially
+reduce this burden. U-Net \cite{ronneberger2015} and its successors have achieved
+near-expert performance on a wide range of medical image segmentation tasks.
+Simultaneously, large language models \cite{singhal2023} and retrieval-augmented
+generation \cite{lewis2020} have enabled coherent, factually grounded clinical
+text generation. However, the intersection of these two capabilities ---
+producing a complete, formatted, validated radiology report from a raw DICOM
+volume --- remains largely unexplored for French-language clinical contexts,
+and has not, to our knowledge, been applied to real clinical data from
+sub-Saharan Africa.
+
+Existing systems face three key limitations that we address in this work.
+\textit{First}, most published pipelines are evaluated on public benchmark
+datasets rather than deployed on real clinical data, creating a significant
+gap between academic performance and clinical utility. \textit{Second}, report
+generation systems overwhelmingly target English-language chest X-ray reports;
+French-language multi-organ CT and MRI reporting is an open problem.
+\textit{Third}, semi-automatic annotation strategies for low-resource settings
+--- where manual expert annotation is not feasible --- have received limited
+attention as a path to training data creation.
 
 This work makes four contributions:
 \begin{enumerate}
   \item A \textbf{modality-aware segmentation pipeline} using pretrained MONAI
-        bundles at no additional compute cost, covering the full CRE case mix.
+        bundles covering the full CRE clinical case mix (CT: 104 organs,
+        Brain MRI: 133 structures) at zero additional training compute.
   \item A \textbf{CRE-specific fine-tuning layer} trained on pseudo-labels
-        automatically generated by MedSAM --- requiring no manual annotation.
+        automatically generated by MedSAM from real CRE patient DICOM data,
+        requiring no manual annotation.
   \item An \textbf{automated French report generation system} using RAG from
-        a growing corpus of real CRE \textit{comptes rendus}, grounded in
-        segmentation findings.
-  \item A \textbf{deployable human-in-the-loop clinical tool} with doctor
-        review, patient portal, and continual learning loop.
+        a growing institutional corpus, directly grounded in segmentation
+        findings and per-organ volumetric metrics.
+  \item A \textbf{deployable human-in-the-loop clinical tool} featuring doctor
+        review and validation, patient portal, and a continual learning loop
+        that improves the system with each validated report.
 \end{enumerate}
+
+The resulting system is not intended to replace the radiologist, but to act as
+an intelligent first-draft assistant --- handling the repetitive structural
+aspects of reporting while leaving clinical judgment entirely to the specialist.
 
 % ── II. Related Work ──────────────────────────────────────────────────────────
 \section{Related Work}
 
-\textbf{Medical image segmentation.}
-The U-Net architecture \cite{ronneberger2015} introduced encoder-decoder design
-with skip connections that remains dominant. TotalSegmentator \cite{wasserthal2023}
-(SegResNet, 1{,}204 CT scans, 104 organs) and UNesT \cite{yu2023} (hierarchical
-transformer, 133 brain structures) represent the current state of the art for
-pretrained clinical segmentation. nnU-Net \cite{isensee2021} provides
-self-configuring training. MedSAM \cite{ma2024}, a fine-tuned Segment Anything
-Model, enables prompt-based zero-shot medical segmentation.
+\subsection{Medical Image Segmentation}
+The U-Net architecture \cite{ronneberger2015}, with its encoder-decoder design
+and skip connections, remains the dominant paradigm for medical image
+segmentation. nnU-Net \cite{isensee2021} provides self-configuring training
+that consistently achieves top performance across diverse benchmarks.
+Transformer-based models such as SwinUNETR have further extended accuracy on
+3D volumetric tasks. Among pretrained models, TotalSegmentator \cite{wasserthal2023}
+is particularly relevant: a SegResNet trained on 1{,}204 annotated clinical CT
+scans covering 104 anatomical structures, representing the state of the art for
+multi-organ CT segmentation. UNesT \cite{yu2023}, a hierarchical transformer
+with a 3D U-Net decoder, achieves state-of-the-art performance on 133-structure
+whole-brain MRI segmentation. MedSAM \cite{ma2024}, a Segment Anything Model
+fine-tuned on 1.5 million medical image-mask pairs, enables prompt-based
+zero-shot segmentation across modalities.
 
-\textbf{Automated radiology report generation.}
-Early systems relied on template filling \cite{shin2016}. Recent approaches ---
-BioViL-T \cite{bannur2023} and LLaVA-Med --- use vision-language pretraining.
-Most target English chest X-ray reports; French multi-organ reporting is
+\subsection{Automated Radiology Report Generation}
+Early work on automated report generation relied on template filling driven
+by image classifiers \cite{shin2016}. Recent systems leverage vision-language
+pretraining: BioViL-T \cite{bannur2023} uses temporal contrastive learning on
+paired chest X-ray sequences; LLaVA-Med adapts the LLaVA vision-language model
+for medical conversations. Most existing systems target English-language chest
+X-ray reports; French-language and multi-organ CT/MRI reporting remain largely
 unexplored.
 
-\textbf{RAG for medical applications.}
-Retrieval-Augmented Generation \cite{lewis2020} improves factual grounding by
-conditioning generation on retrieved evidence. Its application to radiology
-report generation --- grounding text in real prior reports --- is novel.
+\subsection{Retrieval-Augmented Generation in Medicine}
+RAG \cite{lewis2020} improves factual accuracy by grounding LLM generation in
+retrieved evidence, reducing hallucination rates on knowledge-intensive tasks.
+In medicine, RAG has been applied to clinical question answering and guideline
+retrieval. Its application to radiology report generation --- conditioning
+generation on semantically similar prior reports from the same institution --- is
+novel and constitutes one of the key contributions of this work.
 
-\textbf{AI in sub-Saharan African healthcare.}
-Published AI applications to African clinical data remain sparse \cite{osei2019}.
-This work contributes a real-world dataset and deployed system from Gabon.
+\subsection{AI in Sub-Saharan African Healthcare}
+Published AI applications to African clinical imaging data remain sparse
+\cite{osei2019}. Most initiatives focus on tuberculosis detection from chest
+X-rays. The CRE dataset presented here --- real CT and MRI studies from a
+Gabonese radiology centre paired with French \textit{comptes rendus} ---
+constitutes a unique real-world contribution from this underrepresented context.
 
-% ── III. System Architecture ──────────────────────────────────────────────────
+% ── III. Dataset ──────────────────────────────────────────────────────────────
+\section{Dataset}
+
+\subsection{CRE Clinical Dataset}
+Images and reports were provided by the Centre de Radiologie \'{E}milie under
+an institutional agreement ensuring full patient anonymisation in compliance
+with applicable regulations. The dataset comprises:
+
+\textbf{CT studies}: Acquired on a Toshiba Astelion scanner. DICOM files use
+JPEG-LS Lossless compression (TransferSyntaxUID: 1.2.840.10008.1.2.4.80),
+512\texttimes512 pixels, 16-bit depth, slice thickness 1.0\,mm. Body parts
+include thorax, abdomen, abdominopelvien, brain (with and without contrast),
+maxillo-facial, and generic CT protocols. Each study is paired with a
+\textit{compte rendu} PDF in professional French medical style, authored by
+Dr.~Dahas Jalel.
+
+\textbf{MRI studies}: Various sequences (T1, T2, FLAIR, T1-Gd). Body parts
+include brain, knee, cervical spine, shoulder, and elbow. MRI
+\textit{comptes rendus} are not yet available for training.
+
+Patient metadata is embedded in DICOM tags and extracted automatically:
+\texttt{PatientName}, \texttt{PatientID}, \texttt{PatientBirthDate},
+\texttt{PatientAge}, \texttt{PatientSex}, \texttt{Modality},
+\texttt{BodyPartExamined}, \texttt{ProtocolName}, \texttt{StudyDate},
+\texttt{PixelSpacing}, \texttt{SliceThickness}.
+
+\subsection{Preprocessing}
+DICOM files are decoded using \textit{pydicom} with \textit{pyjpegls} for
+JPEG-LS decompression. CT arrays are windowed using DICOM-embedded centre and
+width tags; MRI arrays are min-max normalised per slice. All slices are resized
+to 512\texttimes512 and normalised to $[0, 1]$.
+
+% ── IV. System Architecture ───────────────────────────────────────────────────
 \section{System Architecture}
 
 \subsection{Pipeline Overview}
 
-Fig.~\ref{fig:pipeline} shows the complete system pipeline. A FastAPI backend
-exposes REST endpoints consumed by a Next.js web frontend. SQLite stores patient
-records, study metadata, segmentation results, and reports. ChromaDB indexes all
-\textit{comptes rendus} for RAG retrieval.
+Fig.~\ref{fig:pipeline} presents the complete end-to-end pipeline. A FastAPI
+backend (Python~3.10+) exposes REST endpoints consumed by a Next.js~14
+web frontend. An SQLite database with async SQLAlchemy stores patient records,
+study metadata, segmentation results, and report versions. A ChromaDB
+persistent vector store indexes all institutional \textit{comptes rendus} for
+RAG retrieval.
 
-% ── Full-width pipeline figure ────────────────────────────────────────────────
 \begin{figure*}[t]
 \centering
-\begin{tikzpicture}[node distance=0.45cm and 0.35cm]
+\begin{tikzpicture}[node distance=0.42cm and 0.32cm]
 
-  % ── Row 1: input ──
   \node[block] (dicom) {DICOM ZIP\\Upload};
-
-  % ── Row 2: preprocess ──
-  \node[block, below=of dicom] (pre) {Preprocessing\\{\scriptsize pydicom · pyjpegls}\\{\scriptsize HU window · 512\texttimes512}};
-
-  % ── Row 3: router ──
+  \node[block, below=of dicom] (pre)
+        {Preprocessing\\{\scriptsize pydicom · pyjpegls}\\
+         {\scriptsize HU window · 512\texttimes512 · [0,1]}};
   \node[decision, below=of pre, yshift=-0.1cm] (router) {Modality\\Router};
 
-  % ── Row 4: three branches ──
-  \node[block, below left=0.6cm and 1.8cm of router] (ct)
-        {\textbf{Stage 1A}\\TotalSegmentator\\CT · 104 organs};
-  \node[block, below=0.6cm of router] (brain)
+  \node[block, below left=0.65cm and 1.9cm of router] (ct)
+        {\textbf{Stage 1A}\\TotalSegmentator\\CT\\104 organs};
+  \node[block, below=0.65cm of router] (brain)
         {\textbf{Stage 1B}\\UNesT\\Brain MRI\\133 structures};
-  \node[blockred, below right=0.6cm and 1.8cm of router] (msk)
-        {MedSAM\\Prompted\\MSK MRI\\{\scriptsize (limitation)}};
+  \node[blockred, below right=0.65cm and 1.9cm of router] (msk)
+        {MedSAM\\Prompted\\MSK MRI\\{\scriptsize (documented\\limitation)}};
 
-  % ── Row 5: merge → Stage 2 ──
-  \node[blockorange, below=1.8cm of router] (stage2)
-        {\textbf{Stage 2}\\CRE U-Net\\Fine-tuned on\\pseudo-labels};
+  \node[blockorange, below=1.95cm of router] (stage2)
+        {\textbf{Stage 2}\\CRE U-Net\\Fine-tuned on\\MedSAM pseudo-labels};
 
-  % ── Row 6: clinical layer ──
   \node[block, below=of stage2] (clinical)
-        {\textbf{Clinical Layer}\\Volume (mL) · Mean HU\\Anomaly flags\\Overlay PNG};
+        {\textbf{Clinical Layer}\\Volume (mL) · Mean HU\\Anomaly flags vs.\\normal ranges · Overlay};
 
-  % ── Row 7: split into RAG + findings ──
-  \node[block, below left=0.6cm and 1.5cm of clinical] (rag)
-        {RAG Retrieval\\ChromaDB · k=5\\Multilingual\\embeddings};
-  \node[block, below right=0.6cm and 1.5cm of clinical] (findings)
-        {Findings JSON\\structure · size\\location · HU};
+  \node[block, below left=0.65cm and 1.6cm of clinical] (rag)
+        {RAG Retrieval\\ChromaDB · $k$=5\\Multilingual\\embeddings (384-d)};
+  \node[block, below right=0.65cm and 1.6cm of clinical] (findings)
+        {Findings JSON\\structure · size\\location · HU\\confidence};
 
-  % ── Row 8: LLaVA ──
-  \node[block, below=1.7cm of clinical] (llava)
+  \node[block, below=1.9cm of clinical] (llava)
         {LLaVA-7B\\Ollama · local\\French medical\\R\'{e}sultat + Conclusion};
 
-  % ── Row 9: doctor ──
   \node[blockgreen, below=of llava] (doctor)
         {Radiologist Review\\Web UI · Edit · Sign\\\textit{``BROUILLON IA''}};
 
-  % ── Row 10: two outputs ──
-  \node[block, below left=0.6cm and 1.5cm of doctor] (pdf)
-        {PDF Generation\\ReportLab\\CRE branding\\Watermark};
-  \node[blockgray, below right=0.6cm and 1.5cm of doctor] (cl)
-        {Continual Learning\\Validated report\\indexed \textrightarrow{} ChromaDB\\RAG improves};
+  \node[block, below left=0.65cm and 1.6cm of doctor] (pdf)
+        {PDF Generation\\ReportLab\\CRE branding\\Watermark · Signature};
+  \node[blockgray, below right=0.65cm and 1.6cm of doctor] (cl)
+        {Continual Learning\\Validated report\\indexed \textrightarrow{} ChromaDB\\RAG improves over time};
 
-  % ── Arrows: main flow ──
   \draw[arrow] (dicom) -- (pre);
   \draw[arrow] (pre) -- (router);
-  \draw[arrow] (router) -- node[left,font=\tiny]{CT} (ct);
+  \draw[arrow] (router) -- node[above left,font=\tiny]{CT} (ct);
   \draw[arrow] (router) -- node[right,font=\tiny]{Brain} (brain);
-  \draw[arrow] (router) -- node[right,font=\tiny]{MSK} (msk);
-  \draw[arrow] (ct) -- (stage2);
+  \draw[arrow] (router) -- node[above right,font=\tiny]{MSK} (msk);
+  \draw[arrow] (ct)    -- (stage2);
   \draw[arrow] (brain) -- (stage2);
-  \draw[arrow] (msk) -- (stage2);
-  \draw[arrow] (stage2) -- (clinical);
+  \draw[arrow] (msk)   -- (stage2);
+  \draw[arrow] (stage2)  -- (clinical);
   \draw[arrow] (clinical) -- (rag);
   \draw[arrow] (clinical) -- (findings);
-  \draw[arrow] (rag) -- (llava);
+  \draw[arrow] (rag)      -- (llava);
   \draw[arrow] (findings) -- (llava);
-  \draw[arrow] (llava) -- (doctor);
-  \draw[arrow] (doctor) -- (pdf);
-  \draw[arrow] (doctor) -- (cl);
+  \draw[arrow] (llava)    -- (doctor);
+  \draw[arrow] (doctor)   -- (pdf);
+  \draw[arrow] (doctor)   -- (cl);
 
-  % ── Group boxes ──
   \begin{scope}[on background layer]
     \node[groupbox, fit=(ct)(brain)(msk)(stage2),
-          label={[font=\scriptsize,gray]above:Segmentation Pipeline}] {};
+          label={[font=\scriptsize,gray]above:Two-Stage Segmentation}] {};
     \node[groupbox, fit=(rag)(findings)(llava),
-          label={[font=\scriptsize,gray]above:Report Generation}] {};
+          label={[font=\scriptsize,gray]above:RAG Report Generation}] {};
+    \node[groupbox, fit=(doctor)(pdf)(cl),
+          label={[font=\scriptsize,gray]above:Human-in-the-Loop + Continual Learning}] {};
   \end{scope}
-
 \end{tikzpicture}
-\caption{End-to-end pipeline of the AI-assisted radiology reporting system.
-  The modality router dispatches each volume to the appropriate pretrained
-  MONAI bundle (Stage~1), followed by CRE-specific fine-tuning (Stage~2),
-  per-organ clinical metric extraction, RAG-grounded French report generation,
-  and human-in-the-loop validation with continual learning.}
+\caption{Complete end-to-end pipeline of the CRE AI radiology reporting system.
+DICOM volumes are routed by modality to the appropriate pretrained MONAI bundle
+(Stage~1), refined by CRE-specific fine-tuning (Stage~2), processed into
+per-organ clinical metrics, and used to ground French report generation via RAG
+and LLaVA. The radiologist reviews and validates each draft; validated reports
+feed back into the RAG corpus for continual learning.}
 \label{fig:pipeline}
 \end{figure*}
 
 \subsection{Technology Stack}
+Table~\ref{tab:stack} summarises the technology stack. The system runs entirely
+on commodity hardware: a standard workstation with a GTX~1650 GPU is sufficient
+for inference. Ollama serves the LLaVA model locally, ensuring patient data
+never leaves the hospital network.
 
 \begin{table}[h]
-\caption{Technology stack}
+\caption{System technology stack}
 \label{tab:stack}
 \centering
-\renewcommand{\arraystretch}{1.1}
+\renewcommand{\arraystretch}{1.15}
 \begin{tabular}{ll}
 \toprule
 \textbf{Layer} & \textbf{Technology} \\
 \midrule
-Backend & FastAPI (Python 3.10+), async SQLAlchemy \\
-Frontend & Next.js 14, TypeScript, Tailwind CSS \\
-Segmentation Stage 1 & MONAI pretrained bundles (PyTorch) \\
-Segmentation Stage 2 & Custom 2D U-Net, PyTorch \\
-Pseudo-labeling & MedSAM ViT-B (HuggingFace) \\
-RAG & ChromaDB, sentence-transformers \\
-Report generation & Ollama + LLaVA-7B (local) \\
-PDF & ReportLab \\
-Training & Kaggle T4 GPU (free tier) \\
+Backend API       & FastAPI (Python 3.10+), async SQLAlchemy \\
+Frontend          & Next.js 14, TypeScript, Tailwind CSS \\
+Segmentation St.1 & MONAI pretrained bundles (PyTorch) \\
+Segmentation St.2 & Custom 2D U-Net, PyTorch \\
+Pseudo-labeling   & MedSAM ViT-B (HuggingFace) \\
+RAG               & ChromaDB, sentence-transformers \\
+Embeddings        & paraphrase-multilingual-MiniLM-L12-v2 \\
+Report generation & Ollama + LLaVA-7B (local, offline) \\
+PDF output        & ReportLab \\
+Training platform & Kaggle T4 GPU (free tier, 30 GPU-h/week) \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-% ── IV. Methodology ───────────────────────────────────────────────────────────
+% ── V. Methodology ────────────────────────────────────────────────────────────
 \section{Methodology}
 
 \subsection{Stage 1 --- Pretrained Multi-Organ Segmentation}
 
-Rather than training from scratch, we leverage two MONAI pretrained bundles
-covering the full CRE clinical case mix at no additional compute cost.
+A key design decision is to avoid training from scratch and instead leverage
+two complementary MONAI pretrained bundles that together cover the full CRE
+clinical case mix at no additional compute cost.
 
-\textbf{CT volumes} are routed to \texttt{wholeBody\_ct\_segmentation}
-\cite{wasserthal2023} --- a SegResNet architecture trained on the TotalSegmentator
-dataset (1{,}204 clinical CT scans, 104 anatomical structures expert-annotated).
-We use the 3.0\,mm low-resolution variant, which fits a free T4 GPU. This single
-model covers all CRE CT protocols: TDM Thoracique, TDM TAP, TDM
-Abdomino-Pelvien, and generic CT.
+\textbf{CT segmentation.}
+CT volumes (TDM Thoracique, TDM TAP, TDM Abdomino-Pelvien, and generic CT
+protocols) are routed to \texttt{wholeBody\_ct\_segmentation} \cite{wasserthal2023},
+a SegResNet trained on the TotalSegmentator dataset: 1{,}204 clinical CT
+volumes with expert annotation of 104 anatomical structures spanning thoracic,
+abdominal, pelvic, and musculoskeletal regions. We use the 3.0\,mm
+low-resolution variant, which runs inference on a free T4 GPU within 2\,s per
+5-slice batch. Output is a 105-channel label map (background + 104 organs).
 
-\textbf{Brain MRI volumes} are routed to
-\texttt{wholeBrainSeg\_Large\_UNEST\_segmentation} \cite{yu2023} --- a UNesT
-architecture (hierarchical transformer + 3D U-Net decoder) trained on 133 brain
-structures from T1-weighted MRI. This covers IRM C\'{e}r\'{e}bral cases.
+\textbf{Brain MRI segmentation.}
+Brain MRI volumes (IRM C\'{e}r\'{e}bral) are routed to
+\texttt{wholeBrainSeg\_Large\_UNEST\_segmentation} \cite{yu2023}, a UNesT
+architecture combining a hierarchical transformer encoder with a 3D U-Net
+decoder, trained on 133 brain structures from T1-weighted MRI. Output is a
+134-channel label map.
 
-\textbf{MSK MRI} (knee, shoulder, elbow, cervical spine) has no comparable
-pretrained model publicly available. These cases are processed via MedSAM
-prompted segmentation, documented as a system limitation.
+\textbf{MSK MRI limitation.}
+Musculoskeletal MRI cases (IRM Genou, IRM Rachis Cervical, IRM \'{E}paule,
+IRM Coude) have no publicly available pretrained segmentation model of
+comparable scope. These cases are processed via MedSAM prompted segmentation
+as a best-effort fallback, and this limitation is documented explicitly for
+the radiologist in the UI.
 
-Modality detection is performed automatically from DICOM metadata
-(\texttt{Modality}, \texttt{BodyPartExamined} tags) with an HU
-intensity-based heuristic fallback.
+\textbf{Modality routing.}
+Detection is performed automatically from DICOM metadata (\texttt{Modality}
+tag, \texttt{BodyPartExamined} tag). For volumes with incomplete headers, an
+HU intensity heuristic is applied: CT volumes systematically contain negative
+HU values ($<-200$\,HU), while MRI volumes do not.
 
-\subsection{Stage 2 --- CRE-Specific Fine-Tuning}
+\subsection{Stage 2 --- CRE-Specific Pseudo-Label Fine-Tuning}
 
-Stage~1 models are not trained on CRE data. To adapt segmentation to the
-specific characteristics of CRE's scanner hardware and patient population, we
-fine-tune a 2D U-Net on real CRE patient data using automatic pseudo-labels.
+Stage~1 pretrained models were not trained on CRE data. To adapt segmentation
+to CRE-specific characteristics (scanner hardware, contrast protocols, patient
+population demographics), we fine-tune a lightweight 2D U-Net using an
+automatic pseudo-labeling pipeline requiring no manual annotation effort.
 
-\textbf{Pseudo-labeling via MedSAM.}
-For each patient, representative DICOM slices are extracted at uniform intervals.
-Automatic bounding-box prompts are generated by Otsu intensity thresholding
-followed by connected-component analysis (top-$N$ largest components).
-MedSAM (ViT-B, \texttt{flaviagiammarino/medsam-vit-base}) produces binary
-segmentation masks without any manual drawing. Slice/mask pairs are saved as
-NumPy arrays with a manifest JSON.
+\textbf{Pseudo-labeling pipeline.}
+For each patient, $N$ representative DICOM slices are extracted at uniform
+depth intervals. Automatic bounding-box prompts are generated in three steps:
+(1)~Otsu global thresholding separates foreground from background; (2)~a
+morphological closing operation with a $15\!\times\!15$ elliptical kernel
+merges nearby components; (3)~connected-component analysis (8-connectivity)
+identifies the top-$K$ largest foreground regions by area, producing bounding
+boxes $[x_1, y_1, x_2, y_2]$ for each. These boxes are passed to MedSAM
+(ViT-B architecture, loaded from HuggingFace as
+\texttt{flaviagiammarino/medsam-vit-base} \cite{ma2024}), which produces a
+binary segmentation mask for each prompt without any manual drawing.
+Slice/mask pairs are saved as float32/uint8 NumPy arrays with a manifest JSON
+using relative paths (ensuring portability across platforms).
 
-\textbf{Fine-tuning setup.}
-2D U-Net (DoubleConv blocks, skip connections),
-$\text{in\_channels}=1$, $\text{num\_classes}=2$ (binary),
-features $= [64, 128, 256, 512]$.
-Loss: combined Dice + CrossEntropy ($\alpha=0.5$).
-Optimizer: AdamW, $\text{lr}=5\!\times\!10^{-5}$, weight decay $10^{-5}$.
+\textbf{U-Net architecture.}
+Standard 2D U-Net with DoubleConv blocks (Conv2d + BatchNorm + ReLU, repeated
+twice per level) and skip connections.
+$\text{in\_channels}=1$, $\text{num\_classes}=2$ (binary: background
+vs.\ foreground), features $= [64, 128, 256, 512]$,
+bottleneck $= 1{,}024$ channels. Total parameters: $\approx$31\,M.
+
+\textbf{Training setup.}
+Loss: combined Dice + CrossEntropy with $\alpha=0.5$.
+Optimizer: AdamW, $\text{lr}=5\!\times\!10^{-5}$,
+weight\_decay $=10^{-5}$.
 Scheduler: CosineAnnealingLR, $T_{\max}=25$.
-Training: 25~epochs, checkpoint every~3~epochs, early stopping patience~6.
-Encoder/decoder weights matching Stage~1 shape are transferred; only the
-input convolution (4ch$\!\to\!$1ch) and output head ($N$-class$\!\to\!$2-class)
-are freshly trained.
+Batch size: 4 (train), 2 (validation).
+Augmentation: random horizontal and vertical flips ($p=0.5$).
+Training: 25 epochs, checkpoint saved every 3 epochs to Google Drive for
+session-resumable training on Kaggle, early stopping with patience 6.
+80/20 train/validation split.
+
+\textbf{Weight transfer.}
+All encoder and decoder weight tensors whose shapes match between the Stage~1
+model and the Stage~2 U-Net are transferred; only the input convolution
+(adapted from 4-channel BraTS input to 1-channel CT/MRI) and output head
+(adapted from $N$-class to 2-class output) are freshly initialised.
 
 \subsection{Clinical Application Layer}
 
-Segmentation masks are post-processed to extract per-organ metrics:
-\textbf{volume} (mL = voxel count $\times$ voxel spacing$^3$),
-\textbf{mean HU density},
-\textbf{presence/absence flag},
-and \textbf{anomaly flags} (organ volumes compared against published normal
-ranges \cite{molina2021}).
-A convolutional autoencoder provides an image-level anomaly score (MSE
-reconstruction error; slices exceeding $\mu + 2\sigma$ are flagged).
+Segmentation masks are post-processed to extract actionable clinical metrics.
+\textbf{Volume} (mL) is computed as voxel count multiplied by voxel
+spacing$^3$ (from DICOM \texttt{PixelSpacing} and \texttt{SliceThickness} tags).
+\textbf{Mean Hounsfield density} is extracted per organ class from the original
+CT array. \textbf{Anomaly flags} compare computed organ volumes against
+published normal ranges \cite{molina2021}; values outside the range
+$[\mu - 2\sigma, \mu + 2\sigma]$ trigger an explicit flag in the report.
+An optional \textbf{convolutional autoencoder} provides an image-level anomaly
+score (MSE reconstruction error); slices exceeding $\mu + 2\sigma$ across the
+study are highlighted for radiologist attention. A colour-coded overlay PNG
+($\alpha = 0.4$) is generated for each representative slice.
 
 \subsection{RAG-Based French Report Generation}
 
-Structured findings are encoded as a query. ChromaDB retrieves the $k=5$ most
-semantically similar \textit{comptes rendus} from the institutional corpus using
-sentence-transformer embeddings (\textit{paraphrase-multilingual-MiniLM-L12-v2},
-384-dim, multilingual, French-optimised). Findings and retrieved examples are
-provided as context to Ollama (LLaVA-7B, local inference). The model generates
-the \textit{R\'{e}sultat} and \textit{Conclusion} sections in French. A
-rule-based template fallback activates when Ollama is unavailable.
+A query string is composed from the exam type, body part, and clinical
+indication. ChromaDB retrieves the $k=5$ most semantically similar
+\textit{comptes rendus} from the institutional corpus using
+\textit{paraphrase-multilingual-MiniLM-L12-v2} sentence embeddings
+(384 dimensions, cosine similarity, HNSW index). This model was selected for
+its strong French performance and compact size (suitable for local inference).
 
-\textbf{Key design principle.} Segmentation output directly feeds report text.
-A detected liver volume of 2{,}100\,mL generates: \textit{``Foie augment\'{e} de
-volume (2\,100\,mL), compatible avec une h\'{e}patomégalie --- \`{a} corr\'{e}ler
-cliniquement.''} This coupling between visual analysis and language distinguishes
-our approach from systems where segmentation and text generation are independent.
+Structured findings, per-organ metrics, and retrieved examples are assembled
+into a context prompt delivered to Ollama (LLaVA-7B). The prompt is
+structured in English with ASCII-safe headers (avoiding French accented
+characters in prompt tokens, which cause unknown-token artefacts in the
+LLaVA tokeniser), but instructs the model to generate output exclusively
+in professional French medical style. The model produces the
+\textit{R\'{e}sultat} and \textit{Conclusion} sections. A regex parser
+extracts both sections; a rule-based template fallback activates when
+output is empty or Ollama is unavailable.
+
+\textbf{Key design principle.}
+Segmentation output directly feeds report text. A detected liver volume of
+2{,}100\,mL generates: \textit{``Foie augment\'{e} de volume (2\,100\,mL),
+compatible avec une h\'{e}patomégalie --- \`{a} corr\'{e}ler cliniquement.''}
+This coupling distinguishes our approach from pipelines where segmentation and
+language generation are decoupled modules.
 
 \subsection{Human-in-the-Loop Validation and Continual Learning}
 
-The AI draft is watermarked \textit{``BROUILLON IA --- EN ATTENTE DE VALIDATION''}
-throughout the UI and on every PDF page. The radiologist reviews the segmentation
-overlay and editable draft side-by-side, makes corrections, and signs. The
-validated \textit{compte rendu} is indexed back into ChromaDB via upsert ---
-implementing continual learning without retraining.
+The AI draft is displayed in the web interface with a prominent
+\textit{``BROUILLON IA --- EN ATTENTE DE VALIDATION''} banner and a
+diagonal watermark on every PDF page. The radiologist views the segmentation
+overlay and editable draft side-by-side, makes corrections, and digitally
+signs the final report. Upon validation, the complete
+\textit{compte rendu} is indexed into ChromaDB via upsert, implementing
+continual learning without model retraining: each doctor correction improves
+the RAG retrieval pool, progressively shifting the system toward the
+institutional style and the specific case mix of the CRE.
 
-% ── V. Experiments ────────────────────────────────────────────────────────────
+A separate patient-facing portal allows direct DICOM upload, returning a
+watermarked AI draft with an explicit instruction to consult a radiologist.
+This extends diagnostic accessibility in a context where patients sometimes
+obtain their imaging data before seeing a specialist.
+
+% ── VI. Experiments and Results ───────────────────────────────────────────────
 \section{Experiments and Results}
 
 \subsection{Stage 2 Segmentation Metrics}
 
+Table~\ref{tab:seg} reports Stage~2 fine-tuning metrics on the CRE
+pseudo-label validation set. Stage~1 MONAI models are not re-evaluated here;
+their performance on public benchmarks is reported by their original authors
+(TotalSegmentator: mean Dice 0.943 on 104 organs \cite{wasserthal2023};
+UNesT: mean Dice 0.897 on 133 brain structures \cite{yu2023}).
+
 \begin{table}[h]
-\caption{Stage 2 segmentation metrics (CRE pseudo-label validation set)}
+\caption{Stage 2 segmentation --- CRE pseudo-label validation set}
 \label{tab:seg}
 \centering
-\renewcommand{\arraystretch}{1.1}
+\renewcommand{\arraystretch}{1.15}
 \begin{tabular}{lc}
 \toprule
 \textbf{Metric} & \textbf{Value} \\
 \midrule
-IoU (mean)  & {[FILL]} \\
-Dice (mean) & {[FILL]} \\
-Precision   & {[FILL]} \\
-Recall      & {[FILL]} \\
+IoU (mean)  & {[FILL after Kaggle training]} \\
+Dice (mean) & {[FILL after Kaggle training]} \\
+Precision   & {[FILL after Kaggle training]} \\
+Recall      & {[FILL after Kaggle training]} \\
 \bottomrule
-\multicolumn{2}{l}{\scriptsize Stage~1 MONAI models are evaluated by their}\\
-\multicolumn{2}{l}{\scriptsize original authors \cite{wasserthal2023,yu2023}.}\\
 \end{tabular}
 \end{table}
 
 \subsection{Report Generation Quality}
 
 Dr.~Dahas Jalel evaluated [FILL] AI-generated \textit{comptes rendus} on five
-criteria (scale 1--5):
+criteria. Table~\ref{tab:eval} reports results. BLEU-4 and ROUGE-L scores were
+computed against held-out ground-truth \textit{comptes rendus}
+($n=$[FILL] CT reports).
 
 \begin{table}[h]
-\caption{Clinical evaluation by radiologist (Dr. Dahas Jalel)}
+\caption{Clinical evaluation of AI-generated \textit{comptes rendus}}
 \label{tab:eval}
 \centering
-\renewcommand{\arraystretch}{1.1}
-\begin{tabular}{lc}
+\renewcommand{\arraystretch}{1.15}
+\begin{tabular}{lcc}
 \toprule
-\textbf{Crit\`{e}re} & \textbf{Score moyen} \\
+\textbf{Criterion} & \textbf{Mean} & \textbf{Std} \\
 \midrule
-Terminologie m\'{e}dicale fran\c{c}aise & {[FILL]} \\
-Pertinence clinique des r\'{e}sultats   & {[FILL]} \\
-Compl\'{e}tude du compte rendu          & {[FILL]} \\
-Respect du format CRE                   & {[FILL]} \\
-Utilit\'{e} pour le radiologue          & {[FILL]} \\
+French medical terminology  & {[FILL]} & {[FILL]} \\
+Clinical relevance          & {[FILL]} & {[FILL]} \\
+Completeness of findings    & {[FILL]} & {[FILL]} \\
+CRE format adherence        & {[FILL]} & {[FILL]} \\
+Radiologist utility         & {[FILL]} & {[FILL]} \\
 \midrule
-\textbf{Score global}                   & \textbf{[FILL] / 5} \\
+\textbf{Overall score}      & \textbf{[FILL] / 5} & {[FILL]} \\
+\midrule
+BLEU-4  & \multicolumn{2}{c}{[FILL]} \\
+ROUGE-L & \multicolumn{2}{c}{[FILL]} \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-BLEU-4: [FILL] \quad ROUGE-L: [FILL] \quad ($n=$[FILL] held-out CT reports)
-
 \subsection{System Performance}
 
+Table~\ref{tab:perf} reports end-to-end pipeline latency measured on real CRE
+DICOM data (Patient002: 610 slices, JPEG-LS Lossless). All components run on
+the local radiologist workstation; LLaVA inference is CPU-bound regardless of
+GPU availability.
+
 \begin{table}[h]
-\caption{End-to-end inference time}
+\caption{End-to-end inference latency}
 \label{tab:perf}
 \centering
-\renewcommand{\arraystretch}{1.1}
+\renewcommand{\arraystretch}{1.15}
 \begin{tabular}{lcc}
 \toprule
 \textbf{Component} & \textbf{CPU} & \textbf{GPU (GTX 1650)} \\
 \midrule
-DICOM decoding (610 slices) & $\sim$3\,s  & $\sim$1\,s \\
-Stage 1 segmentation (5 sl.) & $\sim$12\,s & $\sim$2\,s \\
-Per-organ metrics            & $\sim$0.5\,s & $\sim$0.5\,s \\
-RAG retrieval ($k=5$)        & $\sim$1\,s  & $\sim$1\,s \\
-LLaVA report generation      & $\sim$45\,s & $\sim$45\,s \\
-PDF generation               & $\sim$0.5\,s & $\sim$0.5\,s \\
+DICOM decoding (610 slices)   & $\sim$3\,s   & $\sim$1\,s \\
+Stage 1 segmentation (5 sl.)  & $\sim$12\,s  & $\sim$2\,s \\
+Per-organ metrics              & $\sim$0.5\,s & $\sim$0.5\,s \\
+RAG retrieval ($k\!=\!5$)      & $\sim$1\,s   & $\sim$1\,s \\
+LLaVA report generation       & $\sim$45\,s  & $\sim$45\,s \\
+PDF generation (ReportLab)    & $\sim$0.5\,s & $\sim$0.5\,s \\
 \midrule
-\textbf{Total pipeline}      & $\sim$62\,s & $\sim$50\,s \\
+\textbf{Total}                 & $\sim$62\,s  & $\sim$50\,s \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-% ── VI. Discussion ────────────────────────────────────────────────────────────
+% ── VII. Discussion ───────────────────────────────────────────────────────────
 \section{Discussion}
 
-\textbf{Clinical value.}
-The system reduces \textit{compte rendu} production time from 10--20\,min of
-manual writing to a 2--5\,min review-and-edit task. For normal examinations ---
-a large proportion of CRE studies --- the AI draft is often immediately usable
-with minor corrections. The RAG component ensures institutional style
-consistency.
+\subsection{Clinical Value}
+The system reduces \textit{compte rendu} production time from 10--20\,min to
+an estimated 2--5\,min review-and-edit task, representing a 4--10$\times$
+speedup for routine examinations. For clearly normal studies --- which
+constitute a large proportion of screening CT examinations --- the AI draft
+is often immediately usable with minor corrections. The RAG mechanism ensures
+institutional style consistency: generated reports use the same terminology,
+structure, and abbreviation conventions as existing CRE \textit{comptes rendus},
+facilitating radiologist acceptance.
 
-\textbf{Novelty.}
-Three aspects are, to our knowledge, novel: (1)~use of MONAI pretrained bundles
-in a deployed clinical system with modality-aware routing; (2)~MedSAM
-pseudo-labeling as a zero-annotation strategy for CRE-specific adaptation;
-(3)~the combination of segmentation $\to$ volumetric metrics $\to$ RAG $\to$
-French report $\to$ continual learning in a single deployed application on real
-sub-Saharan African clinical data.
+\subsection{Novelty}
+Three aspects are novel to our knowledge: \textit{(i)}~the integration of MONAI
+pretrained bundles into a deployed clinical system with automatic modality-aware
+routing, replacing the need for case-by-case model selection; \textit{(ii)}~the
+MedSAM pseudo-labeling pipeline as a zero-annotation strategy for domain
+adaptation in a low-resource African clinical setting; \textit{(iii)}~the
+combination of segmentation $\to$ volumetric metrics $\to$ RAG $\to$ French
+medical report generation $\to$ continual learning in a single deployed application
+built on real sub-Saharan African patient data.
 
-\textbf{Limitations.}
-MSK MRI (knee, shoulder, elbow, spine) lacks a comparable pretrained
-segmentation model. Stage~2 training data is currently limited to [FILL]
-patients; performance will improve as the CRE dataset grows. LLaVA may
-occasionally hallucinate --- mandatory radiologist validation mitigates this risk.
+\subsection{Limitations}
+\textbf{MSK MRI coverage.} No pretrained segmentation model covers knee,
+shoulder, elbow, or cervical spine MRI at a scope comparable to TotalSegmentator.
+MedSAM fallback provides coarse binary segmentation only.
+\textbf{Training data scale.} Stage~2 fine-tuning currently uses [FILL] patients
+($\approx$[FILL] pseudo-labeled pairs); performance will improve substantially
+as the CRE dataset scales to hundreds of patients.
+\textbf{LLM hallucination.} LLaVA may generate clinically plausible but
+inaccurate text. Mandatory radiologist validation and the ``BROUILLON IA''
+watermark mitigate this risk.
+\textbf{Offline deployment.} The system requires a local Ollama installation;
+cloud deployment would require data governance clearance.
 
-\textbf{Future work.}
-Indexing the full CRE corpus to maximise RAG quality; LoRA fine-tuning of a
-French medical LLM (CamemBERT-Bio) on the GTX~1650; formal clinical trial
-comparing AI-assisted vs.\ unassisted reporting; production deployment at CRE.
+\subsection{Future Work}
+Priorities include: indexing the full CRE \textit{comptes rendus} corpus
+(hundreds of documents) to maximise RAG quality; LoRA fine-tuning of a French
+medical language model (CamemBERT-Bio, DrBERT) on the GTX~1650 as a
+replacement for LLaVA; a formal clinical trial measuring AI-assisted vs.\
+unassisted reporting time and error rates; and production server deployment
+at CRE for routine clinical use.
 
-% ── VII. Conclusion ───────────────────────────────────────────────────────────
+% ── VIII. Conclusion ──────────────────────────────────────────────────────────
 \section{Conclusion}
 
-We presented an end-to-end AI-assisted radiology reporting system for the Centre
-de Radiologie \'{E}milie, Gabon --- combining modality-aware multi-organ
-segmentation (MONAI pretrained bundles + CRE fine-tuning), volumetric clinical
-metrics, RAG-based French report generation, and human-in-the-loop validation.
-The system is clinically safe by design and implements continual learning through
-doctor-validated report indexing. It represents, to our knowledge, the first such
-system built on real clinical data from sub-Saharan Africa.
+We presented a complete, deployed AI-assisted radiology reporting system for the
+Centre de Radiologie \'{E}milie, Gabon. The system combines modality-aware
+multi-organ segmentation via pretrained MONAI bundles with a CRE-specific
+fine-tuning layer trained on automatically generated pseudo-labels, extracts
+clinically actionable per-organ metrics, and generates French-language
+\textit{comptes rendus} via RAG-grounded LLM generation. The human-in-the-loop
+validation design ensures clinical safety, while the continual learning loop
+progressively improves system quality with each validated report. The system
+is, to our knowledge, the first French-language AI radiology reporting system
+built on and deployed with real clinical data from sub-Saharan Africa, and we
+hope it contributes to the growing application of AI to healthcare in
+underserved settings.
 
 % ── References ────────────────────────────────────────────────────────────────
 \bibliographystyle{IEEEtran}
